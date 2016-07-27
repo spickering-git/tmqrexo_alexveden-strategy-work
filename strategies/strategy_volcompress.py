@@ -62,11 +62,11 @@ class StrategyVolatilityCompression(StrategyBase):
 
         if params is None:
             # Return default parameters
-            direction, period_slow, period_fast, period_median = self.default_opts()
+            direction, period_slow, period_fast, volcompress_threshold, period_median = self.default_opts()
         else:
             # Unpacking optimization params
             #  in order in self.opts definition
-            direction, period_slow, period_fast, period_median = params
+            direction, period_slow, period_fast, volcompress_threshold, period_median = params
 
         # Defining EXO price
         px = self.data.exo
@@ -87,7 +87,7 @@ class StrategyVolatilityCompression(StrategyBase):
 
         
         crossVal = fast_volcomp.copy()
-        crossVal[:] = 0.5
+        crossVal[:] = volcompress_threshold
         
         # Enry/exit rules
         if direction == 1 :   
