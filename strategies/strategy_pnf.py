@@ -33,21 +33,14 @@ class StrategyPointAndFigurePatterns(StrategyBase):
         #
         pass
 
-    def calc_entry_rules(self, box_size, reversal_value):
+    def calc_entry_rules(self, box_size, reversal_multiplier, column_consec_move_count, window_percent):
 
 
         df = pd.DataFrame()
 
         px = self.data
 
-        if ((np.abs(px.min()) + np.abs(px.max())) / 2).values[0] >= 10000:
-            df['close'] = self.data.exo / 100
-
-        elif ((np.abs(px.min()) + np.abs(px.max())) / 2).values[0] >= 1000:
-            df['close'] = self.data.exo / 10
-
-        else:
-            df['close'] = self.data.exo
+        df['close'] = self.data.exo
 
         box_size = box_size
 
@@ -61,7 +54,8 @@ class StrategyPointAndFigurePatterns(StrategyBase):
 
         column_flag = None
 
-        reversal_value = box_size * reversal_value
+        reversal_multiplier = reversal_multiplier
+        reversal_value = box_size * reversal_multiplier
 
         reversal_flag = False
 
@@ -91,7 +85,7 @@ class StrategyPointAndFigurePatterns(StrategyBase):
                     if column_flag == 'x' and reversal_flag == False:
 
                         # Reversal check
-                        if price_move < 0 and box_quantity >= reversal_value:
+                        if price_move < 0 and price_move <= -reversal_value:
                             reversal_flag = True
                             box_start = temp_l[-1]['open']
 
@@ -109,7 +103,7 @@ class StrategyPointAndFigurePatterns(StrategyBase):
                     if column_flag == 'o' and reversal_flag == False:
 
                         # Reversal check
-                        if price_move > 0 and box_quantity >= reversal_value:
+                        if price_move > 0 and price_move >= reversal_value:
                             reversal_flag = True
                             box_start = temp_l[-1]['open']
 
@@ -211,10 +205,6 @@ class StrategyPointAndFigurePatterns(StrategyBase):
 
         # New x column
 
-        pnf_prev1_df = pnf_df.shift(1)
-
-        # pnf_prev1_last_column_value_df = pnf_df.shift(1).groupby(pnf_df.index).last()
-
         pnf_df['new_x_col'] = (pnf_df.type == 'x') & (pnf_df.type.shift(1) == 'o')
         pnf_df['new_o_col'] = (pnf_df.type == 'o') & (pnf_df.type.shift(1) == 'x')
 
@@ -244,13 +234,200 @@ class StrategyPointAndFigurePatterns(StrategyBase):
         (pnf_df.close == pnf_df.tripple_bot_price_level) & (pnf_df.close.shift(1) > pnf_df.tripple_bot_price_level)
         & (pnf_df.tripple_bot == False))
 
-        px.join(pnf_df.set_index('date')[['new_x_col', 'new_o_col', 'tripple_bot_breakout', 'tripple_top_breakout']])
+        tripple_top_breakout_dup = pnf_df[pnf_df.tripple_top_breakout == True]['tripple_top_price_level'].duplicated()
 
+        pnf_df.loc[tripple_top_breakout_dup[tripple_top_breakout_dup == True].index, 'tripple_top_breakout'] = \
+        pnf_df.tripple_top_breakout.ix[
+            tripple_top_breakout_dup[tripple_top_breakout_dup == True].index].replace(True, False)
 
-        signals_df = px.join(pnf_df.set_index('date')[['new_x_col', 'new_o_col', 'tripple_bot_breakout', 'tripple_top_breakout']])
+        tripple_bot_breakout_dup = pnf_df[pnf_df.tripple_top_breakout == True]['tripple_top_price_level'].duplicated()
+
+        pnf_df.loc[tripple_bot_breakout_dup[tripple_bot_breakout_dup == True].index, 'tripple_bot_breakout'] = \
+        pnf_df.tripple_bot_breakout.ix[
+            tripple_bot_breakout_dup[tripple_bot_breakout_dup == True].index].replace(True, False)
+
+        up_move_count = [0]
+        up_move_counter = 0
+
+        down_move_count = [0]
+        down_move_counter = 0
+
+        same_move_count = [0]
+        same_move_counter = 0
+
+        x_col_upmove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close > \
+                       pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close.shift(1)
+
+        x_col_downmove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close < \
+                         pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close.shift(1)
+
+        x_col_samemove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close < \
+                         pnf_last_column_value_df[pnf_last_column_value_df.type == 'x'].close.shift(1)
+
+        for i in x_col_upmove.index.unique():
+            if x_col_upmove[i] == True and x_col_upmove.shift(1)[i] == False:
+                up_move_counter = 1
+                up_move_count.append(up_move_counter)
+
+            elif x_col_upmove[i] == True and x_col_upmove.shift(1)[i] == True:
+                up_move_counter += 1
+                up_move_count.append(up_move_counter)
+
+            elif x_col_upmove[i] == False and x_col_upmove.shift(1)[i] == True:
+                up_move_counter = 0
+                up_move_count.append(up_move_counter)
+
+            elif x_col_upmove[i] == False and x_col_upmove.shift(1)[i] == False:
+                up_move_counter = 0
+                up_move_count.append(up_move_counter)
+
+            if x_col_downmove[i] == True and x_col_downmove.shift(1)[i] == False:
+                down_move_counter = 1
+                down_move_count.append(down_move_counter)
+
+            elif x_col_downmove[i] == True and x_col_downmove.shift(1)[i] == True:
+                down_move_counter += 1
+                down_move_count.append(down_move_counter)
+
+            elif x_col_downmove[i] == False and x_col_downmove.shift(1)[i] == True:
+                down_move_counter = 0
+                down_move_count.append(down_move_counter)
+
+            elif x_col_downmove[i] == False and x_col_downmove.shift(1)[i] == False:
+                down_move_counter = 0
+                down_move_count.append(down_move_counter)
+
+            if x_col_samemove[i] == True and x_col_samemove.shift(1)[i] == False:
+                same_move_counter = 1
+                same_move_count.append(same_move_counter)
+
+            elif x_col_samemove[i] == True and x_col_samemove.shift(1)[i] == True:
+                same_move_counter += 1
+                same_move_count.append(same_move_counter)
+
+            elif x_col_samemove[i] == False and x_col_samemove.shift(1)[i] == True:
+                same_move_counter = 0
+                same_move_count.append(same_move_counter)
+
+            elif x_col_samemove[i] == False and x_col_samemove.shift(1)[i] == False:
+                same_move_counter = 0
+                same_move_count.append(same_move_counter)
+
+        pnf_df['x_col_upmove_count'] = pd.Series(up_move_count, index=x_col_upmove.index)
+        pnf_df['x_col_downmove_count'] = pd.Series(down_move_count, index=x_col_upmove.index)
+        pnf_df['x_col_samemove_count'] = pd.Series(same_move_count, index=x_col_upmove.index)
+
+        up_move_count = [0]
+        up_move_counter = 0
+
+        down_move_count = [0]
+        down_move_counter = 0
+
+        same_move_count = [0]
+        same_move_counter = 0
+
+        o_col_upmove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close > \
+                       pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close.shift(1)
+
+        o_col_downmove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close < \
+                         pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close.shift(1)
+
+        o_col_samemove = pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close < \
+                         pnf_last_column_value_df[pnf_last_column_value_df.type == 'o'].close.shift(1)
+
+        for i in o_col_upmove.index.unique():
+            if o_col_upmove[i] == True and o_col_upmove.shift(1)[i] == False:
+                up_move_counter = 1
+                up_move_count.append(up_move_counter)
+
+            elif o_col_upmove[i] == True and o_col_upmove.shift(1)[i] == True:
+                up_move_counter += 1
+                up_move_count.append(up_move_counter)
+
+            elif o_col_upmove[i] == False and o_col_upmove.shift(1)[i] == True:
+                up_move_counter = 0
+                up_move_count.append(up_move_counter)
+
+            elif o_col_upmove[i] == False and o_col_upmove.shift(1)[i] == False:
+                up_move_counter = 0
+                up_move_count.append(up_move_counter)
+
+            if o_col_downmove[i] == True and o_col_downmove.shift(1)[i] == False:
+                down_move_counter = 1
+                down_move_count.append(down_move_counter)
+
+            elif o_col_downmove[i] == True and o_col_downmove.shift(1)[i] == True:
+                down_move_counter += 1
+                down_move_count.append(down_move_counter)
+
+            elif o_col_downmove[i] == False and o_col_downmove.shift(1)[i] == True:
+                down_move_counter = 0
+                down_move_count.append(down_move_counter)
+
+            elif o_col_downmove[i] == False and o_col_downmove.shift(1)[i] == False:
+                down_move_counter = 0
+                down_move_count.append(down_move_counter)
+
+            if o_col_samemove[i] == True and o_col_samemove.shift(1)[i] == False:
+                same_move_counter = 1
+                same_move_count.append(same_move_counter)
+
+            elif o_col_samemove[i] == True and o_col_samemove.shift(1)[i] == True:
+                same_move_counter += 1
+                same_move_count.append(same_move_counter)
+
+            elif o_col_samemove[i] == False and o_col_samemove.shift(1)[i] == True:
+                same_move_counter = 0
+                same_move_count.append(same_move_counter)
+
+            elif o_col_samemove[i] == False and o_col_samemove.shift(1)[i] == False:
+                same_move_counter = 0
+                same_move_count.append(same_move_counter)
+
+        pnf_df['o_col_upmove_count'] = pd.Series(up_move_count, index=o_col_upmove.index)
+        pnf_df['o_col_downmove_count'] = pd.Series(down_move_count, index=o_col_upmove.index)
+        pnf_df['o_col_samemove_count'] = pd.Series(same_move_count, index=o_col_upmove.index)
+
+        for i in pnf_df.index.unique():
+            pnf_df.loc[i, 'box_count'] = pnf_df.close.ix[i].count()
+
+            bull_fail = ((pnf_df.box_count == reversal_multiplier) & (pnf_df.type == 'x')).groupby(
+                ((pnf_df.box_count == reversal_multiplier)
+                 & (pnf_df.type == 'x')).index).last()
+
+        pnf_first_column_value_df['bullish_failure'] = (bull_fail.shift(1) == True).groupby(
+            (bull_fail.shift(1) == True).index).first()
+
+        bear_fail = ((pnf_df.box_count == reversal_multiplier) & (pnf_df.type == 'o')).groupby(
+            ((pnf_df.box_count == reversal_multiplier)
+             & (pnf_df.type == 'o')).index).last()
+
+        pnf_first_column_value_df['bearish_failure'] = (bear_fail.shift(1) == True).groupby(
+            (bear_fail.shift(1) == True).index).first()
+
+        pnf_first_column_value_df['local_high'] = (
+                                                  pnf_last_column_value_df.close == pnf_last_column_value_df.close.rolling(
+                                                      len(pnf_last_column_value_df.close) * window_percent).max()).shift(1) == True
+
+        pnf_first_column_value_df['local_low'] = (pnf_last_column_value_df.close == pnf_last_column_value_df.close.rolling(
+            len(pnf_last_column_value_df.close) * window_percent).min()).shift(1) == True
+
+        #column_consec_move_count
+
+        signals_df = px.join(pnf_df.set_index('date')[['new_x_col', 'new_o_col', 'tripple_bot_breakout', 'tripple_top_breakout',
+                                          'x_col_upmove_count', 'x_col_downmove_count', 'x_col_samemove_count',
+                                          'o_col_upmove_count', 'o_col_downmove_count', 'o_col_samemove_count']])
+
+        signals_df = signals_df.join(pnf_first_column_value_df.set_index('date')[
+                    ['bearish_failure', 'bullish_failure', 'local_high', 'local_low']])
 
         return signals_df.new_x_col == True, signals_df.new_o_col == True, signals_df.tripple_bot_breakout == True, \
-               signals_df.tripple_top_breakout == True
+               signals_df.tripple_top_breakout == True, signals_df.bearish_failure == True, \
+               signals_df.bullish_failure == True, signals_df.bearish_failure == True, \
+               signals_df.local_high == True, signals_df.local_low == True, signals_df.x_col_upmove_count == column_consec_move_count, \
+               signals_df.x_col_downmove_count == column_consec_move_count, signals_df.x_col_samemove_count == column_consec_move_count, \
+               signals_df.o_col_upmove_count == column_consec_move_count, \
+               signals_df.o_col_downmove_count == column_consec_move_count, signals_df.o_col_samemove_count == column_consec_move_count
 
     def calculate(self, params=None, save_info=False):
         #
@@ -266,16 +443,16 @@ class StrategyPointAndFigurePatterns(StrategyBase):
 
         if params is None:
             # Return default parameters
-            direction, box_size, reversal_value, rules_index, period_median = self.default_opts()
+            direction, box_size, reversal_multiplier, window_percent, column_consec_move_count, rules_index, period_median = self.default_opts()
         else:
             # Unpacking optimization params
             #  in order in self.opts definition
-            direction, box_size, reversal_value, rules_index, period_median = params
+            direction, box_size, reversal_multiplier, window_percent, column_consec_move_count, rules_index, period_median = params
 
         # Defining EXO price
         px = self.data.exo
 
-        rules_list = self.calc_entry_rules(box_size, reversal_value)
+        rules_list = self.calc_entry_rules(box_size, reversal_multiplier, window_percent, column_consec_move_count)
 
         # Median based trailing stop
         trailing_stop = px.rolling(period_median).median().shift(1)
@@ -285,7 +462,6 @@ class StrategyPointAndFigurePatterns(StrategyBase):
 
         if direction == 1:
             exit_rule = (CrossDown(px, trailing_stop))  # Cross down for longs
-            #exit_rule = pd.Series(rules_list[exit_rules_index])
         elif direction == -1 :
             exit_rule = (CrossUp(px, trailing_stop))  # Cross up for shorts, Cross down for longs
 
